@@ -1,0 +1,148 @@
+/*
+ * "Hello World" example.
+ *
+ * This example prints 'Hello from Nios II' to the STDOUT stream. It runs on
+ * the Nios II 'standard', 'full_featured', 'fast', and 'low_cost' example
+ * designs. It runs with or without the MicroC/OS-II RTOS and requires a STDOUT
+ * device in your system's hardware.
+ * The memory footprint of this hosted application is ~69 kbytes by default
+ * using the standard reference design.
+ *
+ * For a reduced footprint version of this template, and an explanation of how
+ * to reduce the memory footprint for a given application, see the
+ * "small_hello_world" template.
+ *
+ */
+
+#include <stdio.h>
+#include <unistd.h>
+#include <stdbool.h>
+#include "lab_1.h"
+
+
+#define  DEBUG
+
+/*/
+ * Background task
+ */
+int background(void) {
+	#ifdef DEBUG
+	IOWR(LED_PIO_BASE,0,1); // turn LEDs BIT0 to ON to denote START of code execution section
+	#endif
+	int j;
+	int x = 0;
+	int grainsize = 4;
+	int g_taskProcessed = 0;
+
+	for(j = 0; j < grainsize; j++)
+	{
+		g_taskProcessed++;
+	}
+	#ifdef DEBUG
+	IOWR(LED_PIO_BASE,0,0); // turn LEDs BIT0 to OFF to denote END of background task
+	#endif
+	return x;
+}
+
+volatile int egm_edge_capture;
+
+
+typedef enum {
+	EGM_REG_ENABLE = 0,
+	EGM_REG_BUSY,
+	EGM_REG_PERIOD,
+	EGM_REG_PULSE_WIDTH,
+	EGM_REG_AVERAGE_LATENCY,
+	EGM_REG_MISSED,
+	EGM_REG_MULTI,
+	NUM_EGM_REGS
+} EgmRegister;
+
+static void handle_egm_interrupts(void* context, alt_u32 id) {
+	#ifdef DEBUG
+	IOWR(LED_PIO_BASE,2,1); // turn LEDs BIT0 to ON to denote START of code execution section
+	#endif
+	printf("Stimulus received!\n");
+	volatile int* edge_capture_ptr = (volatile int*) context;
+	/* Store the value in the Button's edge capture register in *context. */
+	*edge_capture_ptr = IORD_ALTERA_AVALON_PIO_EDGE_CAP(STIMULUS_IN_BASE);
+	/* Reset the EGM's edge capture register. */
+	IOWR_ALTERA_AVALON_PIO_EDGE_CAP(STIMULUS_IN_BASE, 0);
+
+	/*
+	* Read the PIO to delay ISR exit. This is done to prevent a spurious
+	* interrupt in systems with high processor -> pio latency and fast
+	* interrupts.
+	*/
+	IORD_ALTERA_AVALON_PIO_EDGE_CAP(STIMULUS_IN_BASE);
+	#ifdef DEBUG
+	IOWR(LED_PIO_BASE,2,0); // turn LEDs BIT0 to ON to denote START of code execution section
+	#endif
+}
+
+
+static void init_egm_pio() {
+	void* edge_capture_ptr = (void*) &egm_edge_capture;
+	/* Enable the Stimulus PIO interrupt. */
+	IOWR_ALTERA_AVALON_PIO_IRQ_MASK(STIMULUS_IN_BASE, 0x1);
+	/* Reset the edge capture register. */
+	IOWR_ALTERA_AVALON_PIO_EDGE_CAP(STIMULUS_IN_BASE, 0x0);
+	alt_irq_register( STIMULUS_IN_IRQ, edge_capture_ptr, handle_egm_interrupts);
+}
+
+void configure_egm(alt_u16 period) {
+	// set period
+	IOWR(EGM_BASE, EGM_REG_PERIOD, period);
+	// set pulse width
+	alt_u16 pulse_width = period / 2;
+	IOWR(EGM_BASE, EGM_REG_PULSE_WIDTH, pulse_width);
+	// enable EGM
+	printf("configuring EGM: period: %d, pulse width: %d\n", period, pulse_width);
+	printf("Enabling EGM!\n");
+	IOWR(EGM_BASE, EGM_REG_ENABLE, 0x1);
+}
+
+
+typedef enum {
+	LAB_MODE_INTERRUPT = 0,
+	LAB_MODE_POLLING,
+	NUM_LAB_MODES
+} LabMode;
+
+void get_busy_with_background_task(void) {
+	printf("Getting busy\n");
+	int i = 0;
+	while(true) {
+		#ifdef DEBUG
+		IOWR(LED_PIO_BASE, 2, ++i & 1); // turn LEDs BIT0 to ON to denote START of code execution section
+		#endif
+		int i = 0;
+		for (i = 0; i < 100000; i++) {
+			background();
+		}
+
+	}
+}
+
+LabMode determine_mode(void) {
+	volatile char * switch_pio_address = SWITCH_PIO_BASE;
+	int switch_values = *switch_pio_address;
+	LabMode mode = switch_values & 1;
+	printf("lab mode is %s\n", (mode) ? "Polling" : "Interrupt" );
+	return mode;
+}
+
+
+int main() {
+	LabMode mode = determine_mode();
+	if (mode == LAB_MODE_INTERRUPT) {
+		init_egm_pio();
+		alt_u16 period = 1000;
+		configure_egm(period);
+
+		get_busy_with_background_task();
+	}
+	// tight polling
+
+	return 0;
+}

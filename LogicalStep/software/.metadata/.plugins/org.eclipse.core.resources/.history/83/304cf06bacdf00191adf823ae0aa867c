@@ -1,0 +1,111 @@
+/*
+ * "Hello World" example.
+ *
+ * This example prints 'Hello from Nios II' to the STDOUT stream. It runs on
+ * the Nios II 'standard', 'full_featured', 'fast', and 'low_cost' example
+ * designs. It runs with or without the MicroC/OS-II RTOS and requires a STDOUT
+ * device in your system's hardware.
+ * The memory footprint of this hosted application is ~69 kbytes by default
+ * using the standard reference design.
+ *
+ * For a reduced footprint version of this template, and an explanation of how
+ * to reduce the memory footprint for a given application, see the
+ * "small_hello_world" template.
+ *
+ */
+
+#include <stdio.h>
+#include <stdbool.h>
+#include "lab_1.h"
+
+/*/
+ * Background task
+ */
+int background(void) {
+	int j;
+	int x = 0;
+	int grainsize = 4;
+	int g_taskProcessed = 0;
+
+	for(j = 0; j < grainsize; j++)
+	{
+		g_taskProcessed++;
+	}
+	return x;
+}
+volatile int egm_edge_capture;
+
+static void handle_egm_interrupts(void* context, alt_u32 id) {
+  /* Cast context to edge_capture's type.
+   * It is important to keep this volatile,
+   * to avoid compiler optimization issues.
+   */
+  volatile int* edge_capture_ptr = (volatile int*) context;
+  /* Store the value in the Button's edge capture register in *context. */
+  *edge_capture_ptr = IORD_ALTERA_AVALON_PIO_EDGE_CAP(EGM_BASE);
+  /* Reset the EGM's edge capture register. */
+  IOWR_ALTERA_AVALON_PIO_EDGE_CAP(EGM_BASE, 0);
+  printf("This bish got pressed!\n");
+  /*
+   * Read the PIO to delay ISR exit. This is done to prevent a spurious
+   * interrupt in systems with high processor -> pio latency and fast
+   * interrupts.
+   */
+  IORD_ALTERA_AVALON_PIO_EDGE_CAP(EGM_BASE);
+}
+
+
+static void init_egm_pio() {
+  /* Recast the edge_capture pointer to match the alt_irq_register() function
+  * prototype. */
+  void* edge_capture_ptr = (void*) &egm_edge_capture;
+  /* Enable all 4 button interrupts. */
+  IOWR_ALTERA_AVALON_PIO_IRQ_MASK(BUTTON_PIO_BASE, 0xf);
+  /* Reset the edge capture register. */
+  IOWR_ALTERA_AVALON_PIO_EDGE_CAP(BUTTON_PIO_BASE, 0x0);
+
+  alt_irq_register( BUTTON_PIO_IRQ, edge_capture_ptr, handle_egm_interrupts);
+
+}
+
+
+void configure_egm(int period) {
+
+
+
+
+}
+
+
+typedef enum {
+	LAB_MODE_INTERRUPT = 0,
+	LAB_MODE_POLLING,
+	NUM_LAB_MODES
+} LabMode;
+
+void get_busy_with_background_task(void) {
+	printf("Getting busy\n");
+	while(true) {
+		background();
+	}
+}
+
+LabMode determine_mode(void) {
+	volatile char * switch_pio_address = SWITCH_PIO_BASE;
+	int switch_values = *switch_pio_address;
+	LabMode mode = switch_values & 1;
+	printf("lab mode is %s\n", (mode) ? "Polling" : "Interrupt" );
+	return mode;
+}
+
+
+int main() {
+	LabMode mode = determine_mode();
+	if (mode == LAB_MODE_INTERRUPT) {
+		init_egm_pio();
+		get_busy_with_background_task();
+	}
+	// tight polling
+
+	return 0;
+}
