@@ -27,7 +27,7 @@ typedef enum {
 	LOG_LEVEL_DEBUG,
 	NUM_LOG_LEVELS
 } LogLevel;
-
+#define MIN_PERIOD_POLLING 700
 #define LOG_LEVEL_VERBOSITY LOG_LEVEL_INFO
 
 #define EXCLUDE_LOG_LEVEL 1
@@ -78,7 +78,7 @@ int background(void) {
 	#ifdef DEBUG
 	leds = IORD(LED_PIO_BASE, 0);
 	leds &= (~1);
-	IOWR(LED_PIO_BASE, 0, 0);
+	IOWR(LED_PIO_BASE, 0, leds);
 	#endif
 	return x;
 }
@@ -110,7 +110,7 @@ static void handle_egm_interrupts(void* context, alt_u32 id) {
 	#ifdef DEBUG
 	leds = IORD(LED_PIO_BASE, 0);
 	leds &= (~(1 << 2));
-	IOWR(LED_PIO_BASE, 0, 0);
+	IOWR(LED_PIO_BASE, 0, leds);
 	#endif
 	IOWR_ALTERA_AVALON_PIO_EDGE_CAP(STIMULUS_IN_BASE, 0);
 
@@ -137,6 +137,11 @@ void configure_egm(alt_u16 period) {
 	// enable EGM
 	LOG_DEBUG("Configuring EGM: period: %d, pulse width: %d\n", period, pulse_width);
 	LOG_DEBUG("Enabling EGM\n");
+	#ifdef DEBUG
+	int leds = IORD(LED_PIO_BASE, 0);
+	leds |= (1<<1);
+	IOWR(LED_PIO_BASE, 0, leds);
+	#endif
 	IOWR(EGM_BASE, EGM_REG_ENABLE, 0x1);
 }
 
@@ -157,6 +162,11 @@ alt_u32 get_busy_with_background_task(void) {
 	while(true) {
 		if (check_if_egm_done()) {
 			LOG_DEBUG("EGM is done!\n");
+			#ifdef DEBUG
+			int leds = IORD(LED_PIO_BASE, 0);
+			leds &= (~(1 << 1));
+			IOWR(LED_PIO_BASE, 0, leds);
+			#endif
 			break;
 		}
 		background();
@@ -195,7 +205,7 @@ void wait_until_impulse_received_and_respond(void) {
 }
 
 alt_u16 count_safe_number_of_background_tasks(alt_u16 period) {
-	if (period < 700) {
+	if (period < MIN_PERIOD_POLLING) {
 		return 0;
 	}
 	alt_u16 task_counter = 0;
@@ -216,7 +226,7 @@ alt_u16 count_safe_number_of_background_tasks(alt_u16 period) {
 		background();
 		task_counter+=1;
 	}
-	alt_u16 safe_num = task_counter - 1;
+	alt_u16 safe_num = (task_counter) ? task_counter - 1 : task_counter;
 	LOG_DEBUG("Safe number of tasks: %d\n", safe_num);
 	return safe_num;
 }
@@ -234,6 +244,11 @@ alt_u32 get_busy_with_specified_number_of_background_tasks(alt_u16 safe_num_task
 		}
 		if (check_if_egm_done()) {
 			LOG_DEBUG("EGM is done!\n");
+			#ifdef DEBUG
+			int leds = IORD(LED_PIO_BASE, 0);
+			leds &= (~(1 << 1));
+			IOWR(LED_PIO_BASE, 0, leds);
+			#endif
 			break;
 		}
 		wait_until_impulse_received_and_respond();
@@ -241,8 +256,15 @@ alt_u32 get_busy_with_specified_number_of_background_tasks(alt_u16 safe_num_task
 	return task_counter;
 }
 
+
+void wait_for_user_signal(void) {
+	while (IORD_ALTERA_AVALON_PIO_DATA(BUTTON_PIO_BASE) & 0x1) {}
+}
+
+
 int main() {
 	LabMode mode = determine_mode();
+	wait_for_user_signal();
 	LOG_INFO("period, pulse_width, bg_tasks_run, avg_latency, missed, multi_pulses\n");
 	if (mode == LAB_MODE_INTERRUPT) {
 		init_egm_pio();
