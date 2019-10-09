@@ -263,6 +263,13 @@ void wait_for_user_signal(void) {
 
 
 int main() {
+	while (1) {
+		int button = IORD(BUTTON_PIO_BASE, 0);
+		button = button & 0x01;
+		if (!button) {
+			break;
+		}
+	}
 	LabMode mode = determine_mode();
 	wait_for_user_signal();
 	LOG_INFO("period, pulse_width, bg_tasks_run, avg_latency, missed, multi_pulses\n");
