@@ -242,6 +242,13 @@ alt_u32 get_busy_with_specified_number_of_background_tasks(alt_u16 safe_num_task
 }
 
 int main() {
+	while (1) {
+		int button = IORD(BUTTON_PIO_BASE, 0);
+		button = button & 0x01;
+		if (!button) {
+			break;
+		}
+	}
 	LabMode mode = determine_mode();
 	LOG_INFO("period, pulse_width, bg_tasks_run, avg_latency, missed, multi_pulses\n");
 	if (mode == LAB_MODE_INTERRUPT) {
